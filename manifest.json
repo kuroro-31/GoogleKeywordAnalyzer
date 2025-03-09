@@ -9,27 +9,25 @@
       "tabs",
       "storage",
       "notifications",
-      "webRequest"
+      "webRequest",
+      "cookies",
+      "windows"
     ],
     "host_permissions": [
-      "*://*.google.com/*",
-      "https://hooks.slack.com/*"
+      "*://*.google.com/*"
     ],
     "background": {
       "service_worker": "background.js"
     },
-    "action": {
-      "default_popup": "popup.html",
-      "show_matches": ["*://www.google.com/search?*"]
-    },
+    "action": {},
     "content_scripts": [
       {
         "matches": ["*://*.google.com/*"],
         "js": [
           "constants.js",
-          "recaptcha.js",
           "contentScript.js"
-        ]
+        ],
+        "css": ["content.css"]
       }
     ]
   }

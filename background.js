@@ -4,6 +4,78 @@
 let keywordQueue = [];
 let currentIndex = 0;
 
+// ランダムなユーザーエージェントのリスト
+const USER_AGENTS = [
+  // macOS Chrome
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+  // macOS Safari
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
+  // macOS Firefox
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:119.0) Gecko/20100101 Firefox/119.0",
+  // Windows Chrome
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+  // Windows Edge
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
+  // Windows Firefox
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:119.0) Gecko/20100101 Firefox/119.0",
+];
+
+// ランダムなユーザーエージェントを取得
+function getRandomUserAgent() {
+  const index = Math.floor(Math.random() * USER_AGENTS.length);
+  return USER_AGENTS[index];
+}
+
+// ランダムな待機時間を生成（自然な検索パターンをシミュレート）
+function getRandomWaitTime(min, max) {
+  // 基本の待機時間
+  const baseTime = Math.floor(Math.random() * (max - min + 1)) + min;
+
+  // 自然なばらつきを追加（±20%）
+  const variation = baseTime * 0.2 * (Math.random() * 2 - 1);
+
+  return Math.max(min, Math.floor(baseTime + variation));
+}
+
+// Googleドメインの全Cookieを削除する関数
+async function clearGoogleCookies() {
+  try {
+    // Google関連のドメインのCookieを削除
+    const googleDomains = ["google.com", "www.google.com"];
+
+    for (const domain of googleDomains) {
+      const cookies = await chrome.cookies.getAll({ domain });
+
+      for (const cookie of cookies) {
+        try {
+          const url = `http${cookie.secure ? "s" : ""}://${cookie.domain}${
+            cookie.path
+          }`;
+          await chrome.cookies.remove({
+            url: url,
+            name: cookie.name,
+          });
+        } catch (e) {
+          console.log(`Cookie削除スキップ: ${cookie.name}`, e);
+          // エラーを無視して続行
+        }
+      }
+    }
+
+    console.log("Googleのクッキーを削除しました");
+  } catch (error) {
+    console.error("クッキー削除エラー:", error);
+    // エラーを無視して続行
+  }
+}
+
 // キーワードを順番に処理するフロー
 async function processKeywords(keywords) {
   // 保存された結果を取得して、処理済みのキーワードを特定
@@ -17,9 +89,19 @@ async function processKeywords(keywords) {
     (keyword) => !processedKeywords.has(keyword)
   );
 
+  // キーワードをランダムな順序で処理するためにシャッフル
+  const shuffledKeywords = [...remainingKeywords];
+  for (let i = shuffledKeywords.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledKeywords[i], shuffledKeywords[j]] = [
+      shuffledKeywords[j],
+      shuffledKeywords[i],
+    ];
+  }
+
   const chunks = [];
-  for (let i = 0; i < remainingKeywords.length; i += 5) {
-    chunks.push(remainingKeywords.slice(i, i + 5));
+  for (let i = 0; i < shuffledKeywords.length; i += 5) {
+    chunks.push(shuffledKeywords.slice(i, i + 5));
   }
 
   const totalKeywords = keywords.length;
@@ -29,12 +111,13 @@ async function processKeywords(keywords) {
     for (let i = 0; i < chunks.length; i++) {
       if (i > 0) {
         // インターバル待機中のメッセージを表示
-        for (let waitTime = 1; waitTime > 0; waitTime--) {
+        const waitTime = getRandomWaitTime(3, 10); // 3〜10秒のランダムな待機時間（短縮）
+        for (let remaining = waitTime; remaining > 0; remaining--) {
           chrome.runtime.sendMessage({
             type: "ANALYSIS_UPDATE",
             payload: {
               currentKeyword: "インターバル待機中",
-              progressText: `次のバッチまで残り${waitTime}秒 (${processedCount}/${totalKeywords}キーワード完了)`,
+              progressText: `次のバッチまで残り${remaining}秒 (${processedCount}/${totalKeywords}キーワード完了)`,
             },
           });
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -60,18 +143,6 @@ async function processKeywords(keywords) {
             totalCount: totalKeywords,
           },
         });
-
-        // Slack通知
-        await notifySlack(
-          `処理中にエラーが発生しました: ${error.message}`,
-          chunks[i][0],
-          processedCount,
-          totalKeywords,
-          error.url ||
-            `https://www.google.com/search?q=${encodeURIComponent(
-              chunks[i][0]
-            )}`
-        );
 
         // エラー通知を表示
         chrome.notifications.create({
@@ -135,7 +206,7 @@ async function searchKeywords(keywordChunk, processedCount, totalKeywords) {
       results.push(result);
       await chrome.storage.local.set({ analysisResults: results });
 
-      // 結果をpopupに通知
+      // 結果をコンテンツスクリプトに通知
       chrome.runtime.sendMessage({
         type: "ANALYSIS_RESULT",
         payload: {
@@ -196,6 +267,18 @@ async function searchKeywords(keywordChunk, processedCount, totalKeywords) {
 // searchSingleKeyword関数を修正
 async function searchSingleKeyword(keyword, processedCount, totalKeywords) {
   try {
+    // 検索前にGoogleのCookieを削除
+    await clearGoogleCookies();
+
+    // 進捗状況を更新
+    chrome.runtime.sendMessage({
+      type: "ANALYSIS_UPDATE",
+      payload: {
+        currentKeyword: keyword,
+        progressText: `処理中... (${processedCount}/${totalKeywords}キーワード完了)`,
+      },
+    });
+
     const startTime = Date.now();
 
     // 検索URLを構築
@@ -275,83 +358,25 @@ function waitForSearchResults(tabId) {
     setTimeout(() => {
       chrome.runtime.onMessage.removeListener(onMessageListener);
       reject(new Error("TIMEOUT"));
-    }, 30000);
+    }, 15000); // 15秒に短縮
   });
 }
 
-// リキャプチャ検出時のSlack通知関数
-async function notifySlack(
+// リキャプチャ検出時などのログ関数
+function logMessage(
   message,
   keyword = "",
   processedCount = 0,
   totalKeywords = 0,
   errorUrl = ""
 ) {
-  console.log("Slack通知開始:", {
+  console.log("ログ:", {
     message,
     keyword,
     processedCount,
     totalKeywords,
     errorUrl,
   });
-
-  try {
-    const result = await chrome.storage.local.get("slackWebhookUrl");
-    const SLACK_WEBHOOK_URL = result.slackWebhookUrl;
-
-    if (!SLACK_WEBHOOK_URL) {
-      console.error("Slack Webhook URLが設定されていません");
-      return;
-    }
-
-    const response = await fetch(SLACK_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: "🚨 キーワード分析アラート",
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*${message}*`,
-            },
-          },
-          {
-            type: "section",
-            fields: [
-              {
-                type: "mrkdwn",
-                text: `*キーワード:*\n${keyword || "不明"}`,
-              },
-              {
-                type: "mrkdwn",
-                text: `*進捗状況:*\n${processedCount}/${totalKeywords} キーワード完了`,
-              },
-              {
-                type: "mrkdwn",
-                text: `*発生時刻:*\n${new Date().toLocaleString("ja-JP")}`,
-              },
-              {
-                type: "mrkdwn",
-                text: `*URL:*\n${errorUrl || "不明"}`,
-              },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Slack通知エラー: ${response.status}`);
-    }
-
-    console.log("Slack通知成功:", await response.text());
-  } catch (error) {
-    console.error("Slack通知エラー:", error);
-  }
 }
 
 // Google検索URLを開き、contentScriptからDOM解析結果を受け取る
@@ -359,113 +384,188 @@ function getSearchResults(searchUrl, keyword, processedCount, totalKeywords) {
   return new Promise((resolve, reject) => {
     let isResolved = false;
 
-    chrome.tabs.create({ url: searchUrl, active: false }, (tab) => {
-      const onMessageListener = (message, sender, sendResponse) => {
-        if (isResolved) return;
-        if (message.type === "DOM_PARSED" && sender.tab.id === tab.id) {
-          isResolved = true;
-          let data = message.payload;
-          chrome.tabs.remove(tab.id);
-          chrome.runtime.onMessage.removeListener(onMessageListener);
-          resolve(data);
-        } else if (
-          message.type === "RECAPTCHA_DETECTED" &&
-          sender.tab.id === tab.id
+    // 新しいウィンドウを作成
+    chrome.windows.create(
+      {
+        url: searchUrl,
+        type: "normal",
+        focused: false,
+        width: 1000,
+        height: 800,
+        top: 100,
+        left: 100,
+        incognito: false,
+      },
+      (window) => {
+        const tabId = window.tabs[0].id;
+
+        const onMessageListener = (message, sender, sendResponse) => {
+          if (isResolved) return;
+          if (message.type === "DOM_PARSED" && sender.tab.id === tabId) {
+            isResolved = true;
+            let data = message.payload;
+            // ウィンドウを閉じる
+            chrome.windows.remove(window.id);
+            chrome.runtime.onMessage.removeListener(onMessageListener);
+            resolve(data);
+          } else if (
+            message.type === "RECAPTCHA_DETECTED" &&
+            sender.tab.id === tabId
+          ) {
+            isResolved = true;
+            chrome.runtime.onMessage.removeListener(onMessageListener);
+            // リキャプチャが検出された場合はウィンドウを閉じない（手動で解決できるように）
+            reject(new Error("RECAPTCHA_DETECTED"));
+          }
+        };
+
+        chrome.runtime.onMessage.addListener(onMessageListener);
+
+        // タブの更新イベントを監視
+        chrome.tabs.onUpdated.addListener(function onUpdated(
+          updatedTabId,
+          changeInfo
         ) {
-          isResolved = true;
-          chrome.tabs.remove(tab.id);
-          chrome.runtime.onMessage.removeListener(onMessageListener);
-          reject(new Error("RECAPTCHA_DETECTED"));
-        }
-      };
-
-      // タブの読み込み完了を監視
-      chrome.tabs.onUpdated.addListener(function onUpdated(tabId, changeInfo) {
-        if (tabId === tab.id && changeInfo.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(onUpdated);
-
-          // DOM解析のための待機時間
-          setTimeout(() => {
-            if (!isResolved) {
-              // タイムアウト処理
-              setTimeout(() => {
-                if (!isResolved) {
-                  isResolved = true;
-                  chrome.tabs.remove(tab.id);
-                  chrome.runtime.onMessage.removeListener(onMessageListener);
-                  reject(new Error("TIMEOUT"));
-                }
-              }, 30000); // 30秒のタイムアウト
-            }
-          }, 3000); // 3秒の初期待機
-        }
-      });
-
-      chrome.runtime.onMessage.addListener(onMessageListener);
-    });
+          if (updatedTabId === tabId && changeInfo.status === "complete") {
+            // 一定時間後にタイムアウト
+            setTimeout(() => {
+              if (!isResolved) {
+                isResolved = true;
+                chrome.runtime.onMessage.removeListener(onMessageListener);
+                chrome.tabs.onUpdated.removeListener(onUpdated);
+                chrome.windows.remove(window.id);
+                reject(new Error("TIMEOUT"));
+              }
+            }, 15000); // 15秒タイムアウト
+          }
+        });
+      }
+    );
   });
 }
 
-// reCAPTCHAページを検出する関数を修正
+// リキャプチャページを検出する関数を強化
 function isRecaptchaPage(url, html) {
-  return (
-    url.includes("google.com/sorry/") || // Google sorry ページの検出を追加
-    html.includes("g-recaptcha") ||
-    html.includes("recaptcha") ||
-    (html.includes("このページについて") &&
-      html.includes("通常と異なるトラフィックが検出されました"))
-  );
+  if (!url || !html) return false;
+
+  try {
+    return (
+      url.includes("google.com/sorry/") ||
+      url.includes("/recaptcha/") ||
+      url.includes("accounts.google.com/Captcha") ||
+      url.includes("accounts.google.com/signin/challenge") ||
+      url.includes("consent.google.com") ||
+      html.includes("g-recaptcha") ||
+      html.includes("recaptcha") ||
+      html.includes("captcha-form") ||
+      html.includes("challenges/styles") ||
+      (html.includes("このページについて") &&
+        html.includes("通常と異なるトラフィックが検出されました")) ||
+      html.includes("ロボットではないことを確認") ||
+      html.includes("セキュリティ チェック") ||
+      html.includes("検証コード") ||
+      html.includes("不審なリクエスト") ||
+      html.includes("アクセスが一時的に制限されています") ||
+      html.includes(
+        "お使いのコンピュータ ネットワークから通常と異なるトラフィック"
+      )
+    );
+  } catch (error) {
+    console.error("reCAPTCHA検出エラー:", error);
+    return false;
+  }
 }
 
-// manifest.json で webRequest 権限が必要
-chrome.webRequest?.onCompleted?.addListener(
-  function (details) {
-    if (details.type === "main_frame") {
-      chrome.tabs.get(details.tabId, function (tab) {
-        if (
-          tab &&
-          (tab.url.includes("google.com/sorry/") ||
-            tab.url.includes("/recaptcha/") ||
-            (tab.url.includes("google.com/search") &&
-              details.statusCode === 429))
-        ) {
-          chrome.notifications.create({
-            type: "basic",
-            iconUrl: "icon48.png",
-            title: "reCAPTCHA検出",
-            message:
-              "Googleの検索でreCAPTCHAが表示されています。手動での対応が必要です。",
-          });
+// リキャプチャ対策のための待機時間を動的に調整する関数
+let recaptchaDetectionCount = 0;
+let lastRecaptchaTime = 0;
+let recaptchaHandlingInProgress = false;
 
-          try {
-            chrome.tabs.sendMessage(details.tabId, {
-              type: "RECAPTCHA_DETECTED",
-              message: "リキャプチャが検出されました",
-            });
-          } catch (error) {
-            console.error("タブへのメッセージ送信エラー:", error);
-          }
+// リキャプチャ検出時の共通処理
+async function handleRecaptchaDetection(
+  url,
+  keyword,
+  currentCount,
+  totalCount
+) {
+  // 既に処理中の場合は重複実行を防止
+  if (recaptchaHandlingInProgress) {
+    console.log("リキャプチャ処理が既に進行中です");
+    return;
+  }
 
-          chrome.runtime.sendMessage({
-            type: "RECAPTCHA_INTERRUPT",
-          });
+  recaptchaHandlingInProgress = true;
 
-          // Slackに通知（URLを追加）
-          notifySlack(
-            "Googleの検索でreCAPTCHAが表示されています。手動での対応が必要です。",
-            keywordQueue[currentIndex],
-            currentIndex,
-            keywordQueue.length,
-            tab.url // URLを追加
-          );
-        }
+  try {
+    console.log("リキャプチャ検出処理を開始:", url);
+
+    // 通知を表示
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icon48.png",
+      title: "reCAPTCHA検出",
+      message:
+        "Googleの検索でreCAPTCHAが表示されています。手動での対応が必要です。",
+      priority: 2,
+      requireInteraction: true,
+    });
+
+    // タブにメッセージを送信（処理を軽量化）
+    try {
+      const tabs = await chrome.tabs.query({
+        url: "*://*.google.com/*",
+        active: true,
       });
+      if (tabs.length > 0) {
+        chrome.tabs
+          .sendMessage(tabs[0].id, {
+            type: "RECAPTCHA_DETECTED",
+            message: "リキャプチャが検出されました",
+          })
+          .catch((e) => console.error("タブへのメッセージ送信エラー:", e));
+      }
+    } catch (error) {
+      console.error("タブ検索エラー:", error);
     }
-  },
-  { urls: ["*://*.google.com/*"] }
-);
 
-// popup.js からの分析開始指示を受け取る
+    // ポップアップに通知
+    chrome.runtime.sendMessage({
+      type: "RECAPTCHA_INTERRUPT",
+      payload: {
+        lastKeyword: keyword || "不明",
+        currentCount: currentCount || 0,
+        totalCount: totalCount || 0,
+        url: url || "",
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // 一時停止状態を保存
+    await chrome.storage.local.set({
+      pausedState: {
+        lastKeyword: keyword || "不明",
+        processedCount: currentCount || 0,
+        totalKeywords: totalCount || 0,
+        timestamp: new Date().toISOString(),
+        recaptchaUrl: url || "",
+      },
+    });
+
+    // Cookieをクリア
+    await clearGoogleCookies();
+
+    // 処理完了後、少し待ってからフラグをリセット
+    setTimeout(() => {
+      recaptchaHandlingInProgress = false;
+      console.log("リキャプチャ処理フラグをリセットしました");
+    }, 5000); // 5秒後にリセット
+  } catch (error) {
+    console.error("reCAPTCHA検出処理エラー:", error);
+    recaptchaHandlingInProgress = false;
+  }
+}
+
+// コンテンツスクリプトからの分析開始指示を受け取る
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "START_ANALYSIS") {
     keywordQueue = msg.payload.keywords;
@@ -477,25 +577,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // リキャプチャ検出時のメッセージ処理を修正
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "RECAPTCHA_DETECTED") {
-    // Slackに通知
-    notifySlack(
-      "リキャプチャが検出されました。手動での対応が必要です。",
-      message.keyword || "不明",
-      message.currentCount || 0,
-      message.totalCount || 0,
-      message.errorUrl || ""
+    handleRecaptchaDetection(
+      message.url || sender?.tab?.url || "",
+      message.keyword || keywordQueue[currentIndex] || "不明",
+      message.currentCount || currentIndex || 0,
+      message.totalCount || keywordQueue.length || 0
     );
-
-    // ポップアップに通知
-    chrome.runtime.sendMessage({
-      type: "RECAPTCHA_INTERRUPT",
-      payload: {
-        lastKeyword: message.keyword,
-        currentCount: message.currentCount,
-        totalCount: message.totalCount,
-        errorUrl: message.errorUrl,
-      },
-    });
   }
   // 他のメッセージ処理...
 });
@@ -508,48 +595,23 @@ async function handleRecaptchaError(
   url
 ) {
   try {
-    // Slack通知
-    await notifySlack(
-      "検索が一時停止されました。reCAPTCHAによる確認が必要です。",
-      keyword,
-      processedCount,
-      totalKeywords,
-      url
-    );
+    // 共通の検出処理を呼び出す
+    await handleRecaptchaDetection(url, keyword, processedCount, totalKeywords);
 
     // 通知を表示
     chrome.notifications.create({
       type: "basic",
       iconUrl: "icon48.png",
-      title: "検索が一時停止されました",
-      message: "reCAPTCHAによる確認が必要です。手動で対応してください。",
-      priority: 2,
-      requireInteraction: true,
+      title: "検索を一時停止します",
+      message:
+        "reCAPTCHAが検出されたため、処理を一時停止します。手動で対応してください。",
     });
 
-    // ポップアップに通知
-    chrome.runtime.sendMessage({
-      type: "RECAPTCHA_INTERRUPT",
-      payload: {
-        lastKeyword: keyword,
-        currentCount: processedCount,
-        totalCount: totalKeywords,
-        url: url,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    // 一時停止状態を保存
-    await chrome.storage.local.set({
-      pausedState: {
-        lastKeyword: keyword,
-        processedCount: processedCount,
-        totalKeywords: totalKeywords,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    // 一時停止状態を返す
+    return Promise.resolve();
   } catch (error) {
     console.error("reCAPTCHAエラーハンドリング中のエラー:", error);
+    return Promise.resolve();
   }
 }
 
@@ -559,7 +621,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     changeInfo.status === "complete" &&
     tab.url?.startsWith("https://www.google.com/search?")
   ) {
-    chrome.action.openPopup();
+    // ポップアップは使用しないため、この処理は削除
   }
 });
 
@@ -569,10 +631,24 @@ function searchKeyword(keyword) {
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
     const currentTab = tabs[0];
 
+    // ランダムなユーザーエージェントを設定
+    const userAgent = getRandomUserAgent();
+
     // スクリプトを実行
     chrome.scripting.executeScript({
       target: { tabId: currentTab.id },
-      func: (keyword) => {
+      func: (keyword, userAgent) => {
+        // ユーザーエージェントを変更（可能な場合）
+        try {
+          Object.defineProperty(navigator, "userAgent", {
+            get: function () {
+              return userAgent;
+            },
+          });
+        } catch (e) {
+          console.log("ユーザーエージェント変更エラー:", e);
+        }
+
         // Google検索フォームの要素を取得
         const searchInput = document.querySelector('input[name="q"]');
         const searchForm = document.querySelector('form[role="search"]');
@@ -584,7 +660,7 @@ function searchKeyword(keyword) {
           searchForm.submit();
         }
       },
-      args: [keyword],
+      args: [keyword, userAgent],
     });
   });
 }
